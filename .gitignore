@@ -1,0 +1,5 @@
+data/
+embeddings/
+models/*.pkl
+__pycache__/
+*.pyc
