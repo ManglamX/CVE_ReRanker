@@ -1,0 +1,14 @@
+requests
+pandas
+numpy
+scikit-learn
+xgboost
+joblib
+tqdm
+spacy
+transformers
+torch
+shap
+fuzzywuzzy
+python-Levenshtein
+streamlit
