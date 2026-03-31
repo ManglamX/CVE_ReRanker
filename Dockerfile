@@ -27,6 +27,7 @@ COPY data/ ./data/
 # Hugging Face Spaces run on port 7860 by default
 ENV PORT=7860
 ENV HOST=0.0.0.0
+ENV PYTHONPATH=/app/backend
 
 # 5. Expose the port
 EXPOSE 7860
