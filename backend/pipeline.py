@@ -53,8 +53,8 @@ def load_artifacts():
     _le    = joblib.load(LE_PATH)
     print("Loading dataset …", flush=True)
     _df    = pd.read_csv(CSV_PATH)
-    print("Loading BERT embeddings …", flush=True)
-    _emb   = np.load(EMB_PATH)
+    print("Loading BERT embeddings (Memory Mapped) …", flush=True)
+    _emb   = np.load(EMB_PATH, mmap_mode='r')
     print(f"Ready — {len(_df):,} CVEs loaded.", flush=True)
 
 
