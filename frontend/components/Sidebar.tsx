@@ -7,10 +7,10 @@ import Aurora from "./Aurora";
 import GradientText from "./GradientText";
 
 const NAV = [
-  { href: "/",          icon: LayoutDashboard, label: "Dashboard"   },
-  { href: "/lookup",    icon: Search,          label: "CVE Lookup"  },
-  { href: "/bulk",      icon: FileSpreadsheet, label: "Bulk Upload" },
-  { href: "/inventory", icon: Package,         label: "Inventory"   },
+  { href: "/", icon: LayoutDashboard, label: "Dashboard" },
+  { href: "/lookup", icon: Search, label: "CVE Lookup" },
+  { href: "/bulk", icon: FileSpreadsheet, label: "Bulk Upload" },
+  { href: "/inventory", icon: Package, label: "Inventory" },
 ];
 
 export default function Sidebar() {
@@ -55,7 +55,7 @@ export default function Sidebar() {
         </p>
         <p style={{ marginTop: 3, display: "flex", alignItems: "center", gap: 5 }}>
           <Zap size={12} />
-          <span>FastAPI · localhost:8000</span>
+          <span>FastAPI · Hugging Face</span>
         </p>
       </div>
     </aside>
