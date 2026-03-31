@@ -19,6 +19,8 @@ pinned: false
 [![SecBERT](https://img.shields.io/badge/SecBERT-BERT--base-purple?style=flat-square)](https://huggingface.co/jackaduma/SecBERT)
 [![NVD](https://img.shields.io/badge/Dataset-NVD%20200k%2B%20CVEs-green?style=flat-square)](https://nvd.nist.gov)
 [![SDG](https://img.shields.io/badge/SDG-9%20%26%2016-teal?style=flat-square)](https://sdgs.un.org/goals)
+[![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-yellow?style=flat-square)](https://huggingface.co/spaces/ManglamX/CVE-ReRanker)
+[![Vercel](https://img.shields.io/badge/Vercel-Frontend-black?style=flat-square)](https://cve-reranker.vercel.app)
 
 ---
 
@@ -183,27 +185,20 @@ git clone https://github.com/ManglamX/cve-severity-reranker.git
 cd cve-severity-reranker
 ```
 
-### 2. Start the FastAPI backend
-
+### 2. Configure Environment
+Create a `.env.local` in the `frontend` folder:
 ```bash
-cd backend
-pip install -r requirements.txt
-python -m spacy download en_core_web_sm
-uvicorn main:app --reload --port 8000
+NEXT_PUBLIC_API_URL=https://manglamx-cve-reranker.hf.space
 ```
 
-Backend runs at `http://localhost:8000`
-Interactive API docs at `http://localhost:8000/docs`
-
 ### 3. Start the Next.js frontend
-
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-Frontend runs at `http://localhost:3000`
+Frontend runs at `http://localhost:3000` (Connecting to Hugging Face API)
 
 ---
 
@@ -260,7 +255,7 @@ Overview of your CVE dataset — class distribution chart, top 10 highest contex
 Enter any CVE ID and get instant analysis — predicted severity, context score, risk signals (remote exploitable, code execution, attack vector), and inventory match warning if applicable.
 
 ### Bulk CSV Upload
-Upload a CSV with a `cve_id` column. Get back a ranked table sorted by context score. Download results as CSV.
+Upload a CSV with a `cve_id` column. You can **type your inventory manually** or **upload an inventory CSV** to get environment-aware rankings.
 
 ### Inventory Matcher
 Upload your software inventory CSV. The system returns only CVEs that affect your software, ranked by context score.
@@ -328,6 +323,15 @@ Add your NVD API key as a GitHub Secret named `NVD_API_KEY` to enable automation
 4. `notebooks/05_training.ipynb` — XGBoost training + evaluation
 
 Each notebook is smart — skips completed steps and only processes new rows.
+
+---
+
+## Deployment
+
+| Component | Platform | URL |
+|---|---|---|
+| **API / Backend** | Hugging Face Spaces (Docker) | `https://manglamx-cve-reranker.hf.space` |
+| **Frontend** | Vercel | `https://cve-reranker.vercel.app` |
 
 ---
 
