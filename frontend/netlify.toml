@@ -1,9 +1,10 @@
 [build]
-  command = "npm run build"
+  command = "next build"
   publish = ".next"
 
 [build.environment]
   NEXT_PUBLIC_API_URL = "https://cve-reranker.onrender.com"
+  NODE_VERSION = "20"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
