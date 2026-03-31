@@ -1,3 +1,13 @@
+---
+title: CVE Severity Re-Ranker API
+emoji: 🛡️
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # CVE Vulnerability Severity Re-Ranking
 
 > Context-aware vulnerability prioritisation using NLP, Deep Learning, and Machine Learning
