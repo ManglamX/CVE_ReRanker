@@ -1,0 +1,70 @@
+name: Weekly Full Pipeline
+
+permissions:
+  contents: write
+
+on:
+  schedule:
+    - cron: '0 2 * * 0'        # every Sunday at 02:00 UTC
+  workflow_dispatch:             # manual trigger
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180         # 3-hour limit for embeddings + training
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Pull LFS objects
+        run: git lfs pull
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          pip install requests pandas numpy scikit-learn xgboost joblib tqdm
+          pip install transformers torch --index-url https://download.pytorch.org/whl/cpu
+          pip install spacy
+          python -m spacy download en_core_web_sm
+
+      - name: "Step 1 — Fetch new CVEs"
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: python scripts/01_fetch.py
+
+      - name: "Step 2 — Preprocess"
+        run: python scripts/02_preprocess.py
+
+      - name: "Step 3 — Generate SecBERT embeddings"
+        run: python scripts/03_embeddings.py
+
+      - name: "Step 4 — Train / update XGBoost model"
+        run: python scripts/04_train.py
+
+      - name: Commit & push data + model to GitHub
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Stage all pipeline outputs (LFS-tracked)
+          git add data/ models/
+
+          # Only commit and push if something changed
+          git diff --staged --quiet || (
+            git commit -m "chore: weekly pipeline update — $(date +'%Y-%m-%d')" &&
+            git push
+          )
