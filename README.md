@@ -3,9 +3,10 @@
 > Context-aware vulnerability prioritisation using NLP, Deep Learning, and Machine Learning
 
 [![Python](https://img.shields.io/badge/Python-3.10-blue?style=flat-square)](https://python.org)
+[![Next.js](https://img.shields.io/badge/Next.js-Frontend-black?style=flat-square)](https://nextjs.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-Backend-teal?style=flat-square)](https://fastapi.tiangolo.com)
 [![XGBoost](https://img.shields.io/badge/XGBoost-3.2-orange?style=flat-square)](https://xgboost.readthedocs.io)
 [![SecBERT](https://img.shields.io/badge/SecBERT-BERT--base-purple?style=flat-square)](https://huggingface.co/jackaduma/SecBERT)
-[![Streamlit](https://img.shields.io/badge/Streamlit-UI-red?style=flat-square)](https://streamlit.io)
 [![NVD](https://img.shields.io/badge/Dataset-NVD%20200k%2B%20CVEs-green?style=flat-square)](https://nvd.nist.gov)
 [![SDG](https://img.shields.io/badge/SDG-9%20%26%2016-teal?style=flat-square)](https://sdgs.un.org/goals)
 
@@ -21,10 +22,11 @@ This project fixes that.
 
 ## What This System Does
 
-1. Analyses CVE descriptions from the NVD using NLP + BERT embeddings
+1. Analyses CVE descriptions from the NVD using NLP + SecBERT embeddings
 2. Predicts severity (Low / Medium / High / Critical) using XGBoost
 3. Re-ranks CVEs based on your specific software inventory
 4. Surfaces the most dangerous vulnerabilities for **your environment** — not a generic list
+5. Serves results through a FastAPI backend consumed by a Next.js dashboard
 
 ---
 
@@ -33,7 +35,7 @@ This project fixes that.
 | Name | Roll No | Contribution |
 |---|---|---|
 | Manglam Jaiswal | 10127 | Data collection, NLP preprocessing, EDA |
-| Tanaya Bane | 10107 | Re-ranking module, Streamlit UI, evaluation |
+| Tanaya Bane | 10107 | Re-ranking module, Next.js UI, evaluation |
 | Tanmay Sarode | 10154 | SecBERT embeddings, XGBoost training, SHAP |
 
 Third Year | Semester 6 | ML + DL + NLP Mini Project | 2025–26
@@ -79,8 +81,12 @@ NVD API
   User inventory CSV → fuzzy match → boost score → re-sorted list
    │
    ▼
-[Streamlit Dashboard]
-  Single CVE lookup | Bulk analysis | Inventory matcher
+[FastAPI Backend]
+  REST API serving predictions and re-ranked results
+   │
+   ▼
+[Next.js Frontend]
+  Single CVE lookup | Bulk CSV upload | Inventory matcher | Dashboard
 ```
 
 ---
@@ -111,6 +117,23 @@ cve-severity-reranker/
 │   ├── 03_embeddings.py            # SecBERT embedding generation
 │   └── 04_train.py                 # XGBoost training (smart update mode)
 │
+├── backend/
+│   ├── main.py                     # FastAPI app — all API routes
+│   ├── pipeline.py                 # Prediction + re-ranking logic
+│   ├── reranker.py                 # Inventory matching + boost formula
+│   └── requirements.txt            # Python dependencies for backend
+│
+├── frontend/
+│   ├── app/                        # Next.js app directory
+│   │   ├── page.tsx                # Home — dashboard overview
+│   │   ├── lookup/page.tsx         # Single CVE lookup screen
+│   │   ├── bulk/page.tsx           # Bulk CSV upload screen
+│   │   └── inventory/page.tsx      # Inventory matcher screen
+│   ├── components/                 # Reusable React components
+│   ├── public/                     # Static assets
+│   ├── package.json
+│   └── next.config.js
+│
 ├── data/
 │   ├── cves_raw.csv                # Raw NVD data (Git LFS)
 │   ├── cves_processed.csv          # Cleaned + feature engineered (Git LFS)
@@ -122,16 +145,12 @@ cve-severity-reranker/
 │   ├── label_encoder.pkl           # Label encoder
 │   └── training_tracker.json       # Tracks rows model was trained on
 │
-├── app/
-│   ├── app.py                      # Streamlit application (3 screens)
-│   └── reranker.py                 # Contextual re-ranking logic
-│
 ├── notebooks/
-│   ├── 01_data_collection.ipynb    # NVD API fetch (Colab)
-│   ├── 02_preprocessing.ipynb      # NLP pipeline (Colab)
-│   ├── 04_embeddings.ipynb         # SecBERT embeddings (Colab, GPU)
-│   ├── 05_training.ipynb           # XGBoost training (Colab)
-│   └── 06_live_updater.ipynb       # Manual dataset update (Colab)
+│   ├── 01_data_collection.ipynb
+│   ├── 02_preprocessing.ipynb
+│   ├── 04_embeddings.ipynb
+│   ├── 05_training.ipynb
+│   └── 06_live_updater.ipynb
 │
 ├── requirements.txt
 └── README.md
@@ -141,42 +160,100 @@ cve-severity-reranker/
 
 ## Quick Start
 
+### Prerequisites
+
+- Python 3.10+
+- Node.js 18+
+- npm or yarn
+
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/cve-severity-reranker.git
+git clone https://github.com/ManglamX/cve-severity-reranker.git
 cd cve-severity-reranker
 ```
 
-### 2. Install dependencies
+### 2. Start the FastAPI backend
 
 ```bash
+cd backend
 pip install -r requirements.txt
 python -m spacy download en_core_web_sm
+uvicorn main:app --reload --port 8000
 ```
 
-### 3. Run the Streamlit app
+Backend runs at `http://localhost:8000`
+Interactive API docs at `http://localhost:8000/docs`
+
+### 3. Start the Next.js frontend
 
 ```bash
-streamlit run app/app.py
+cd frontend
+npm install
+npm run dev
 ```
 
-The app loads the saved model and embeddings automatically. No training needed.
+Frontend runs at `http://localhost:3000`
 
 ---
 
-## How to Use the App
+## API Endpoints
 
-### Screen 1 — Single CVE lookup
-Enter any CVE ID (e.g. `CVE-2021-44228`) and click **Analyse**. The system returns the predicted severity, context score, and risk signals.
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/health` | Health check |
+| `GET` | `/cve/{cve_id}` | Analyse a single CVE |
+| `POST` | `/bulk` | Analyse a list of CVE IDs |
+| `POST` | `/inventory` | Find CVEs matching uploaded inventory |
+| `GET` | `/stats` | Dataset and model statistics |
 
-Upload your software inventory CSV in the sidebar to see inventory matches and boost scores.
+### Example — single CVE
 
-### Screen 2 — Bulk analysis
-Upload a CSV with a `cve_id` column. The system analyses all CVEs and returns a table sorted by context score. Download results as CSV.
+```bash
+curl http://localhost:8000/cve/CVE-2021-44228
+```
 
-### Screen 3 — Inventory matcher
-Upload your inventory CSV. The system scans the dataset and returns only CVEs that affect your software, sorted by context score.
+```json
+{
+  "cve_id": "CVE-2021-44228",
+  "cvss_score": 10.0,
+  "cvss_label": "Critical",
+  "predicted_label": "Critical",
+  "context_score": 0.512,
+  "boost_factor": 1.0,
+  "matched_inventory": [],
+  "attack_vector": "NETWORK",
+  "has_remote": 1,
+  "has_exec": 1
+}
+```
+
+### Example — bulk with inventory
+
+```bash
+curl -X POST http://localhost:8000/bulk \
+  -H "Content-Type: application/json" \
+  -d '{
+    "cve_ids": ["CVE-2021-44228", "CVE-2022-30190"],
+    "inventory": ["Apache Log4j", "OpenSSL", "Windows Server"]
+  }'
+```
+
+---
+
+## Frontend Screens
+
+### Dashboard
+Overview of your CVE dataset — class distribution chart, top 10 highest context score CVEs, model performance summary.
+
+### Single CVE Lookup
+Enter any CVE ID and get instant analysis — predicted severity, context score, risk signals (remote exploitable, code execution, attack vector), and inventory match warning if applicable.
+
+### Bulk CSV Upload
+Upload a CSV with a `cve_id` column. Get back a ranked table sorted by context score. Download results as CSV.
+
+### Inventory Matcher
+Upload your software inventory CSV. The system returns only CVEs that affect your software, ranked by context score.
 
 **Sample inventory CSV format:**
 ```csv
@@ -193,54 +270,54 @@ nginx
 
 ## How the Re-Ranking Works
 
-After XGBoost predicts severity probabilities, a boost formula adjusts the Critical class probability:
-
 ```
 boost = 1.0
   + 0.30 × (number of inventory matches)
-  × 1.25 (if public exploit exists)
-  × 1.15 (if remote + unauthenticated)
-  × 1.10 (if attack vector = NETWORK)
+  × 1.25  (if public exploit exists)
+  × 1.15  (if remote + unauthenticated)
+  × 1.10  (if attack vector = NETWORK)
 
 context_score = min(prob_critical × boost, 1.0)
 ```
 
-CVEs are then sorted by `context_score` descending — not by CVSS score.
+CVEs are sorted by `context_score` — not by CVSS score.
 
-**Example:** CVE-2021-44228 (Log4Shell)
-- Without inventory: context score = 0.51
-- With `Log4j` in inventory: context score = 0.67 (boost 1.43×)
+**Example — CVE-2021-44228 (Log4Shell)**
+
+| Condition | Context Score |
+|---|---|
+| No inventory | 0.51 |
+| Inventory contains `Log4j` | 0.67 (boost 1.43×) |
 
 ---
 
 ## Automation (GitHub Actions)
 
-The repo includes two automated workflows:
-
 | Workflow | Schedule | What it does |
 |---|---|---|
-| `daily_fetch.yml` | Every day 6 AM UTC | Fetches new CVEs from NVD, updates `cves_raw.csv` |
-| `weekly_pipeline.yml` | Every Sunday 2 AM UTC | Full pipeline: fetch → preprocess → embed → retrain |
+| `daily_fetch.yml` | Every day 6 AM UTC | Fetches new CVEs, updates `cves_raw.csv` |
+| `weekly_pipeline.yml` | Every Sunday 2 AM UTC | Fetch → preprocess → embed → retrain |
 
-The training script is smart — it only does what is needed:
-- **No change** → skips training, loads existing model
-- **Small update** (< 10% new rows) → continues training on new rows only
-- **Large update** (≥ 10% new rows) → full retrain
+Smart training — only does what is needed:
 
-To set up automation, add your NVD API key as a GitHub Secret named `NVD_API_KEY`.
+| Situation | Mode | Time |
+|---|---|---|
+| Dataset unchanged | Skip — loads existing model | 10 sec |
+| < 10% new rows | Update — trains on new rows only | ~2 min |
+| ≥ 10% new rows | Full retrain | ~15 min |
+
+Add your NVD API key as a GitHub Secret named `NVD_API_KEY` to enable automation.
 
 ---
 
-## Training Your Own Model
+## Retraining (Google Colab)
 
-If you want to retrain from scratch on Google Colab:
+1. `notebooks/01_data_collection.ipynb` — fetch CVE data
+2. `notebooks/02_preprocessing.ipynb` — NLP pipeline
+3. `notebooks/04_embeddings.ipynb` — SecBERT embeddings (GPU, ~65 min)
+4. `notebooks/05_training.ipynb` — XGBoost training + evaluation
 
-1. Open `notebooks/01_data_collection.ipynb` → fetch CVE data
-2. Open `notebooks/02_preprocessing.ipynb` → clean and engineer features
-3. Open `notebooks/04_embeddings.ipynb` → generate SecBERT embeddings (GPU required)
-4. Open `notebooks/05_training.ipynb` → train XGBoost and evaluate
-
-Each notebook is self-contained and smart — it skips steps already completed.
+Each notebook is smart — skips completed steps and only processes new rows.
 
 ---
 
@@ -248,14 +325,14 @@ Each notebook is self-contained and smart — it skips steps already completed.
 
 | Component | Technology |
 |---|---|
-| Language | Python 3.10 |
+| Frontend | Next.js (React) |
+| Backend | FastAPI (Python) |
 | NLP | spaCy, regex |
-| Deep Learning | SecBERT (Hugging Face transformers), PyTorch |
+| Deep Learning | SecBERT, PyTorch, Hugging Face transformers |
 | Machine Learning | XGBoost, scikit-learn |
 | Explainability | SHAP TreeExplainer |
 | Inventory matching | FuzzyWuzzy |
-| UI | Streamlit |
-| Data | NVD REST API v2.0 |
+| Data source | NVD REST API v2.0 |
 | Training platform | Google Colab (T4 GPU) |
 | Automation | GitHub Actions |
 | Storage | Google Drive + Git LFS |
@@ -264,7 +341,7 @@ Each notebook is self-contained and smart — it skips steps already completed.
 
 ## Evaluation
 
-**Classification Report (test set: 40,087 CVEs)**
+**Classification Report — test set (40,087 CVEs)**
 
 | Class | Precision | Recall | F1 | Support |
 |---|---|---|---|---|
@@ -274,7 +351,7 @@ Each notebook is self-contained and smart — it skips steps already completed.
 | Medium | 0.79 | 0.86 | 0.82 | 19,001 |
 | **Weighted avg** | **0.77** | **0.77** | **0.77** | **40,087** |
 
-The Low class has lower recall due to class imbalance (1,589 samples vs 19,001 Medium). This is a known limitation and a planned improvement for future work.
+Low class recall is lower due to class imbalance. Planned fix: SMOTE oversampling.
 
 ---
 
@@ -286,24 +363,27 @@ The Low class has lower recall due to class imbalance (1,589 samples vs 19,001 M
 | Date range | January 2019 — March 2026 |
 | Total CVEs | 200,431 |
 | Features per CVE | 781 (768 BERT + 8 NLP + 5 metadata) |
-| Labels | Low / Medium / High / Critical (from CVSS v3 base score) |
+| Auto-updated | Daily via GitHub Actions |
 
-**Label mapping:**
-- 0.0 – 3.9 → Low
-- 4.0 – 6.9 → Medium
-- 7.0 – 8.9 → High
-- 9.0 – 10.0 → Critical
+**CVSS label mapping:**
+
+| Score | Label |
+|---|---|
+| 0.0 – 3.9 | Low |
+| 4.0 – 6.9 | Medium |
+| 7.0 – 8.9 | High |
+| 9.0 – 10.0 | Critical |
 
 ---
 
 ## References
 
-1. Shahid & Debar. *CVSS-BERT: Explainable NLP to Determine the Severity of a Computer Security Vulnerability from its Description.* arXiv 2021.
-2. *A Machine Learning Approach for the NLP-Based Analysis of Cyber Threats and Vulnerabilities.* PMC 2023.
-3. *CVE Severity Prediction From Vulnerability Description — A Deep Learning Approach.* ScienceDirect 2024.
-4. jackaduma. *SecBERT.* Hugging Face Hub. `jackaduma/SecBERT`
-5. Lundberg & Lee. *A Unified Approach to Interpreting Model Predictions (SHAP).* NeurIPS 2017.
-6. Chen & Guestrin. *XGBoost: A Scalable Tree Boosting System.* KDD 2016.
+1. Shahid & Debar. *CVSS-BERT.* arXiv 2021.
+2. *NLP-Based Analysis of Cyber Threats.* PMC 2023.
+3. *CVE Severity Prediction — A Deep Learning Approach.* ScienceDirect 2024.
+4. jackaduma. *SecBERT.* Hugging Face Hub.
+5. Lundberg & Lee. *SHAP.* NeurIPS 2017.
+6. Chen & Guestrin. *XGBoost.* KDD 2016.
 
 ---
 
