@@ -7,7 +7,7 @@ import BorderGlow from "@/components/BorderGlow";
 import GradientText from "@/components/GradientText";
 import ShinyButton from "@/components/ShinyButton";
 import FadeIn from "@/components/FadeIn";
-import { Upload, Zap, Download, X, FileSpreadsheet, AlertTriangle, Info, FileText } from "lucide-react";
+import { Upload, Zap, Download, X, FileSpreadsheet, AlertTriangle, Info, FileText, Package } from "lucide-react";
 
 function severityClass(label: string) {
   return `badge badge-${label?.toLowerCase() ?? ""}`;
@@ -46,9 +46,10 @@ export default function BulkPage() {
   const [results, setResults] = useState<CVEResult[]>([]);
   const [missing, setMissing] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const [invLoading, setInvLoading] = useState(false);
   const [error, setError] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  const [invFile, setInvFile] = useState<File | null>(null);
+  const [invDragOver, setInvDragOver] = useState(false);
 
   const handleFile = (file: File) => { setCsvFile(file); setManualIds(""); };
   
@@ -58,35 +59,28 @@ export default function BulkPage() {
     if (file) handleFile(file);
   };
 
-  const handleInvUpload = async (file: File) => {
-    setInvLoading(true);
-    setError("");
-    try {
-      const text = await file.text();
-      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-      if (lines.length < 2) throw new Error("Inventory CSV is empty or has no data.");
-      
-      const header = lines[0].split(",").map(h => h.trim().toLowerCase());
-      const colIndex = header.indexOf("software");
-      
-      if (colIndex === -1) {
-        throw new Error("Inventory CSV must have a 'software' column.");
-      }
+  const handleInvFile = (file: File) => { setInvFile(file); setInvInput(""); };
+  const handleInvDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setInvDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleInvFile(file);
+  };
 
-      const newItems = lines.slice(1)
-        .map(line => line.split(",")[colIndex]?.trim())
-        .filter(Boolean);
-
-      const currentItems = invInput.split(",").map(s => s.trim()).filter(Boolean);
-      const combined = Array.from(new Set([...currentItems, ...newItems]));
-      
-      setInvInput(combined.join(", "));
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to parse inventory file");
-    } finally {
-      setInvLoading(false);
-      if (invFileRef.current) invFileRef.current.value = "";
+  const parseInventoryFile = async (file: File): Promise<string[]> => {
+    const text = await file.text();
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (lines.length < 2) return [];
+    
+    const header = lines[0].split(",").map(h => h.trim().toLowerCase());
+    const colIndex = header.indexOf("software");
+    
+    if (colIndex === -1) {
+      throw new Error("Inventory CSV must have a 'software' column.");
     }
+
+    return lines.slice(1)
+      .map(line => line.split(",")[colIndex]?.trim())
+      .filter(Boolean);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -107,7 +101,13 @@ export default function BulkPage() {
       
       if (!ids.length) throw new Error("No CVE IDs found.");
       
-      const inv = invInput.split(",").map((s) => s.trim()).filter(Boolean);
+      let inv: string[] = [];
+      if (invFile) {
+        inv = await parseInventoryFile(invFile);
+      } else {
+        inv = invInput.split(",").map((s) => s.trim()).filter(Boolean);
+      }
+      
       const res = await api.bulkAnalyse(ids, inv);
       setResults(res.results);
       setMissing(res.missing);
@@ -175,55 +175,40 @@ export default function BulkPage() {
               </div>
 
               <div className="input-group">
-                <label className="input-label">Your Inventory (optional · comma-separated)</label>
-                <div style={{ position: "relative" }}>
-                  <input className="input" placeholder="e.g. Apache Log4j, OpenSSL, Windows Server"
-                    value={invInput} 
-                    onChange={(e) => setInvInput(e.target.value)} 
-                    id="bulk-inventory-input" 
-                    style={{ paddingRight: "44px" }}
-                  />
-                  <div 
-                    style={{ 
-                      position: "absolute", 
-                      right: "8px", 
-                      top: "50%", 
-                      transform: "translateY(-50%)",
-                      display: "flex",
-                      alignItems: "center"
-                    }}
-                  >
-                    {invLoading ? (
-                      <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
-                    ) : (
-                      <button
-                        type="button"
-                        className="inv-upload-btn"
-                        title="Upload Inventory CSV"
-                        onClick={() => invFileRef.current?.click()}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          color: "var(--text-muted)",
-                          cursor: "pointer",
-                          padding: "6px",
-                          borderRadius: "4px",
-                          display: "flex",
-                          transition: "color 0.2s"
-                        }}
-                      >
-                        <FileText size={18} />
-                      </button>
-                    )}
+                <label className="input-label">Your Inventory — CSV File (optional)</label>
+                <div
+                  className={`drop-zone${invFile || invDragOver ? " drag-over" : ""}`}
+                  onDragOver={(e) => { e.preventDefault(); setInvDragOver(true); }}
+                  onDragLeave={() => setInvDragOver(false)}
+                  onDrop={handleInvDrop}
+                  onClick={() => invFileRef.current?.click()}
+                >
+                  <div className="dz-icon">
+                    {invFile
+                      ? <Package size={36} style={{ color: "var(--low)" }} />
+                      : <Upload size={36} style={{ color: "var(--text-muted)" }} />}
                   </div>
-                  <input 
-                    ref={invFileRef} 
-                    type="file" 
-                    accept=".csv,text/csv" 
-                    style={{ display: "none" }}
-                    onChange={(e) => e.target.files?.[0] && handleInvUpload(e.target.files[0])}
-                  />
+                  <div className="dz-title">{invFile ? invFile.name : "Drop Inventory CSV or click to browse"}</div>
+                  <div className="dz-sub">Required column: <code>software</code></div>
+                  {invFile && <div className="dz-file">✓ Ready · {(invFile.size / 1024).toFixed(1)} KB</div>}
                 </div>
+                <input ref={invFileRef} type="file" accept=".csv,text/csv" style={{ display: "none" }}
+                  onChange={(e) => e.target.files?.[0] && handleInvFile(e.target.files[0])} />
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "8px 0 16px" }}>
+                <div className="divider" style={{ flex: 1, margin: 0 }} />
+                <span style={{ fontSize: 12, color: "var(--text-subtle)", fontWeight: 600 }}>or type inventory manually</span>
+                <div className="divider" style={{ flex: 1, margin: 0 }} />
+              </div>
+
+              <div className="input-group">
+                <label className="input-label">Manual Inventory (comma-separated)</label>
+                <textarea className="input" rows={2}
+                  placeholder="e.g. Apache Log4j, OpenSSL, Windows Server"
+                  value={invInput}
+                  onChange={(e) => { setInvInput(e.target.value); setInvFile(null); }}
+                  style={{ resize: "vertical" }} id="bulk-inventory-manual" />
               </div>
 
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -237,9 +222,14 @@ export default function BulkPage() {
                     <Download size={14} /> Download CSV
                   </ShinyButton>
                 )}
+                {invFile && (
+                  <ShinyButton type="button" variant="secondary" onClick={() => setInvFile(null)}>
+                    <X size={14} /> Clear inventory
+                  </ShinyButton>
+                )}
                 {csvFile && (
                   <ShinyButton type="button" variant="secondary" onClick={() => setCsvFile(null)}>
-                    <X size={14} /> Clear file
+                    <X size={14} /> Clear CVE file
                   </ShinyButton>
                 )}
               </div>
