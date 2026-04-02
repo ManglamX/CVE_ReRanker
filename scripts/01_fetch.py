@@ -2,13 +2,22 @@ import requests
 import pandas as pd
 import time
 import os
+import csv
 import json
 from datetime import datetime, timedelta, timezone
 
-API_KEY    = os.environ["NVD_API_KEY"]
-HEADERS    = {"apiKey": API_KEY}
-CSV_PATH   = "data/cves_raw.csv"
-TRACKER    = "data/last_updated.json"
+API_KEY  = os.environ["NVD_API_KEY"]
+HEADERS  = {"apiKey": API_KEY}
+CSV_PATH = "data/cves_raw.csv"
+TRACKER  = "data/last_updated.json"
+
+COLUMNS = [
+    "cve_id", "description", "cvss_score", "cvss_label",
+    "attack_vector", "attack_complexity", "privileges_required",
+    "user_interaction", "scope"
+]
+
+# ── helpers ────────────────────────────────────────────────────────────
 
 def score_to_label(score):
     if score >= 9.0:   return "Critical"
@@ -16,12 +25,47 @@ def score_to_label(score):
     elif score >= 4.0: return "Medium"
     else:              return "Low"
 
+
+def read_csv(path):
+    """Read the TSV safely; return an empty DataFrame on first run."""
+    if not os.path.exists(path):
+        return pd.DataFrame(columns=COLUMNS)
+    try:
+        return pd.read_csv(
+            path,
+            sep="\t",
+            engine="python",
+            on_bad_lines="skip",
+            low_memory=False,
+        )
+    except Exception as e:
+        print(f"Warning: could not read {path} ({e}). Starting fresh.")
+        return pd.DataFrame(columns=COLUMNS)
+
+
+def save_csv(df, path):
+    """Write as TSV with full quoting so embedded tabs/newlines are safe."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    df.to_csv(
+        path,
+        index=False,
+        sep="\t",
+        quoting=csv.QUOTE_ALL,
+        escapechar="\\",
+    )
+
+
+# ── fetch / parse ──────────────────────────────────────────────────────
+
 def fetch_chunk(start, end):
     url       = "https://services.nvd.nist.gov/rest/json/cves/2.0"
     all_items = []
     idx       = 0
     while True:
-        full_url = f"{url}?pubStartDate={start}&pubEndDate={end}&startIndex={idx}&resultsPerPage=2000"
+        full_url = (
+            f"{url}?pubStartDate={start}&pubEndDate={end}"
+            f"&startIndex={idx}&resultsPerPage=2000"
+        )
         try:
             r = requests.get(full_url, headers=HEADERS, timeout=60)
             r.raise_for_status()
@@ -38,6 +82,7 @@ def fetch_chunk(start, end):
             break
     return all_items
 
+
 def parse_items(items, existing_ids):
     rows = []
     for item in items:
@@ -48,10 +93,12 @@ def parse_items(items, existing_ids):
                 if d["lang"] == "en":
                     desc = d["value"]
                     break
+
             if not desc or "** REJECT **" in desc or len(desc.split()) < 10:
                 continue
             if cve["id"] in existing_ids:
                 continue
+
             metrics   = cve.get("metrics", {})
             cvss_data = None
             if "cvssMetricV31" in metrics:
@@ -60,28 +107,31 @@ def parse_items(items, existing_ids):
                 cvss_data = metrics["cvssMetricV30"][0]["cvssData"]
             else:
                 continue
+
             score = cvss_data["baseScore"]
             rows.append({
                 "cve_id":              cve["id"],
-                "description":         desc,
+                # Collapse embedded newlines so each CVE stays on one TSV row
+                "description":         " ".join(desc.split()),
                 "cvss_score":          score,
                 "cvss_label":          score_to_label(score),
                 "attack_vector":       cvss_data.get("attackVector", ""),
                 "attack_complexity":   cvss_data.get("attackComplexity", ""),
                 "privileges_required": cvss_data.get("privilegesRequired", ""),
                 "user_interaction":    cvss_data.get("userInteraction", ""),
-                "scope":               cvss_data.get("scope", "")
+                "scope":               cvss_data.get("scope", ""),
             })
-        except:
+        except Exception:
             continue
     return rows
 
-# ── MAIN ──────────────────────────────────────────────────────────────
-df           = pd.read_csv(CSV_PATH)
-existing_ids = set(df["cve_id"].tolist())
+
+# ── main ───────────────────────────────────────────────────────────────
+
+df           = read_csv(CSV_PATH)
+existing_ids = set(df["cve_id"].tolist()) if "cve_id" in df.columns else set()
 today        = datetime.now(timezone.utc).replace(tzinfo=None)
 
-# Read last collected date from tracker
 if os.path.exists(TRACKER):
     with open(TRACKER) as f:
         data = json.load(f)
@@ -104,7 +154,7 @@ else:
         chunk_end = min(current + timedelta(days=99), today)
         chunks.append((
             current.strftime("%Y-%m-%dT00:00:00.000"),
-            chunk_end.strftime("%Y-%m-%dT23:59:59.999")
+            chunk_end.strftime("%Y-%m-%dT23:59:59.999"),
         ))
         current = chunk_end + timedelta(days=1)
 
@@ -121,8 +171,10 @@ else:
 
     if all_new:
         combined = pd.concat([df, pd.DataFrame(all_new)], ignore_index=True)
-        combined.to_csv(CSV_PATH, index=False)
+        save_csv(combined, CSV_PATH)
         print(f"Saved. Total CVEs: {len(combined)}")
+    else:
+        print("No new CVEs found.")
 
     with open(TRACKER, "w") as f:
         json.dump({"last_collected": today.strftime("%Y-%m-%d")}, f)
