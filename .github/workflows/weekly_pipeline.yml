@@ -36,9 +36,10 @@ jobs:
 
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install requests pandas numpy scikit-learn xgboost joblib tqdm
-          pip install transformers torch --index-url https://download.pytorch.org/whl/cpu
-          pip install spacy
+          pip install transformers spacy
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
           python -m spacy download en_core_web_sm
 
       - name: "Step 1 — Fetch new CVEs"
