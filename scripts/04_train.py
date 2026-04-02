@@ -14,7 +14,7 @@ except ImportError:
     import subprocess, sys
     subprocess.check_call([sys.executable, "-m", "pip", "install", "matplotlib", "-q"])
     import matplotlib
-matplotlib.use("Agg")          # non-interactive backend for CI
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 PROCESSED    = "data/cves_processed.csv"
@@ -25,9 +25,9 @@ MODEL_PATH   = f"{MODELS_DIR}/model_xgb.pkl"
 LE_PATH      = f"{MODELS_DIR}/label_encoder.pkl"
 CM_PATH      = f"{MODELS_DIR}/confusion_matrix.png"
 
-# ── CONFIG ─────────────────────────────────────────────────────────────
-FORCE_RETRAIN    = False   # set True to force full retrain
-UPDATE_THRESHOLD = 0.10    # >= 10% new rows → full retrain
+FORCE_RETRAIN    = False
+UPDATE_THRESHOLD = 0.10
+VALID_LABELS     = {"Critical", "High", "Medium", "Low"}
 
 os.makedirs(MODELS_DIR, exist_ok=True)
 
@@ -46,10 +46,23 @@ if len(df) != len(bert_emb):
         "Re-run 03_embeddings.py before training."
     )
 
+# ── sanitise labels BEFORE deciding train mode ─────────────────────────
+# Corrupted rows have attack_vector values (NETWORK, LOCAL…) in cvss_label
+# due to column-shift from unquoted commas in old CSV writes.
+
+before   = len(df)
+mask     = df["cvss_label"].isin(VALID_LABELS)
+df       = df[mask].reset_index(drop=True)
+bert_emb = bert_emb[mask.values]
+dropped  = before - len(df)
+if dropped:
+    print(f"Dropped {dropped} corrupted rows (invalid cvss_label).")
+print(f"Clean dataset:    {len(df)} rows")
+
 # ── decide train mode ──────────────────────────────────────────────────
 
 model_exists = os.path.exists(MODEL_PATH)
-current_rows = len(df)
+current_rows = len(df)   # use CLEAN row count
 
 if model_exists and os.path.exists(TRACKER_FILE):
     with open(TRACKER_FILE) as f:
@@ -65,12 +78,12 @@ if model_exists and os.path.exists(TRACKER_FILE):
     if FORCE_RETRAIN:
         TRAIN_MODE = "full"
         print("\nMode: FULL RETRAIN (forced by FORCE_RETRAIN=True)")
-    elif new_rows == 0:
+    elif new_rows <= 0:
         TRAIN_MODE = "skip"
         print("\nMode: SKIP — dataset unchanged, loading existing model")
     elif pct_new >= UPDATE_THRESHOLD:
         TRAIN_MODE = "full"
-        print(f"\nMode: FULL RETRAIN (new rows {pct_new * 100:.1f}% >= threshold {UPDATE_THRESHOLD * 100:.0f}%)")
+        print(f"\nMode: FULL RETRAIN ({pct_new * 100:.1f}% new >= {UPDATE_THRESHOLD * 100:.0f}% threshold)")
     else:
         TRAIN_MODE = "update"
         print(f"\nMode: UPDATE — continuing training on {new_rows:,} new rows only")
@@ -79,20 +92,6 @@ else:
     last_trained_rows = 0
     new_rows          = current_rows
     print("\nMode: FULL RETRAIN (no existing model found)")
-
-# ── sanitise labels ────────────────────────────────────────────────────
-# Keep only rows whose cvss_label is one of the four valid classes.
-# Corrupted rows (column-shift artifacts) have attack_vector values here.
-VALID_LABELS = {"Critical", "High", "Medium", "Low"}
-before = len(df)
-mask   = df["cvss_label"].isin(VALID_LABELS)
-df     = df[mask].reset_index(drop=True)
-bert_emb = bert_emb[mask.values]
-dropped  = before - len(df)
-if dropped:
-    print(f"Dropped {dropped} rows with invalid cvss_label values.")
-
-print(f"\nClean dataset: {len(df)} rows")
 
 # ── build feature matrix ───────────────────────────────────────────────
 
@@ -112,23 +111,30 @@ le    = LabelEncoder()
 y_enc = le.fit_transform(y)
 print(f"Classes:             {le.classes_}")
 
-# Build update split if needed
-if TRAIN_MODE == "update":
-    X_new  = X[last_trained_rows:]
-    y_new  = y_enc[last_trained_rows:]
-    # Only stratify if every class has at least 2 members
-    counts   = np.bincount(y_new)
-    stratify = y_new if counts.min() >= 2 else None
-    X_train_up, X_test_up, y_train_up, y_test_up = train_test_split(
-        X_new, y_new, test_size=0.2, random_state=42, stratify=stratify
-    )
-    print(f"Update train rows:   {len(X_train_up):,}")
-    print(f"Update test rows:    {len(X_test_up):,}")
+# ── build splits ───────────────────────────────────────────────────────
 
-# Always build full split for final evaluation
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y_enc, test_size=0.2, random_state=42, stratify=y_enc
-)
+def safe_split(X, y, test_size=0.2):
+    """train_test_split with stratify, falling back if any class is too small."""
+    counts = np.bincount(y)
+    stratify = y if counts.min() >= 2 else None
+    if stratify is None:
+        print("  Warning: skipping stratify — a class has < 2 members.")
+    return train_test_split(X, y, test_size=test_size, random_state=42, stratify=stratify)
+
+if TRAIN_MODE == "update":
+    X_new = X[last_trained_rows:]
+    y_new = y_enc[last_trained_rows:]
+    if len(X_new) < 5:
+        # Too few new rows to split — fall back to full retrain
+        print(f"Only {len(X_new)} new rows — switching to FULL RETRAIN.")
+        TRAIN_MODE = "full"
+    else:
+        X_train_up, X_test_up, y_train_up, y_test_up = safe_split(X_new, y_new)
+        print(f"Update train rows:   {len(X_train_up):,}")
+        print(f"Update test rows:    {len(X_test_up):,}")
+
+# Always build full split for evaluation
+X_train, X_test, y_train, y_test = safe_split(X, y_enc)
 print(f"\nFull train size:     {X_train.shape}")
 print(f"Full test size:      {X_test.shape}")
 
@@ -144,12 +150,11 @@ elif TRAIN_MODE == "update":
     print(f"\nLoading existing model to continue training...")
     model_xgb = joblib.load(MODEL_PATH)
     le        = joblib.load(LE_PATH)
-
     print(f"Continuing training on {len(X_train_up):,} new rows...")
     start = time.time()
     model_xgb.fit(
         X_train_up, y_train_up,
-        xgb_model = MODEL_PATH,   # warm-start from saved model
+        xgb_model = MODEL_PATH,
         eval_set  = [(X_test_up, y_test_up)],
         verbose   = 50,
     )
@@ -159,16 +164,15 @@ elif TRAIN_MODE == "update":
 else:  # full
     print("\nTraining XGBoost from scratch...")
     model_xgb = XGBClassifier(
-        n_estimators      = 300,
-        max_depth         = 6,
-        learning_rate     = 0.1,
-        subsample         = 0.8,
-        colsample_bytree  = 0.8,
-        use_label_encoder = False,
-        eval_metric       = "mlogloss",
-        random_state      = 42,
-        n_jobs            = -1,
-        tree_method       = "hist",
+        n_estimators     = 300,
+        max_depth        = 6,
+        learning_rate    = 0.1,
+        subsample        = 0.8,
+        colsample_bytree = 0.8,
+        eval_metric      = "mlogloss",
+        random_state     = 42,
+        n_jobs           = -1,
+        tree_method      = "hist",
     )
     start = time.time()
     model_xgb.fit(
@@ -190,13 +194,13 @@ fig, ax = plt.subplots(figsize=(6, 5))
 im = ax.imshow(cm, interpolation="nearest", cmap=plt.cm.Blues)
 plt.colorbar(im, ax=ax)
 ax.set(
-    xticks     = range(len(le.classes_)),
-    yticks     = range(len(le.classes_)),
+    xticks      = range(len(le.classes_)),
+    yticks      = range(len(le.classes_)),
     xticklabels = le.classes_,
     yticklabels = le.classes_,
-    xlabel     = "Predicted",
-    ylabel     = "True",
-    title      = "Confusion Matrix",
+    xlabel      = "Predicted",
+    ylabel      = "True",
+    title       = "Confusion Matrix",
 )
 plt.tight_layout()
 plt.savefig(CM_PATH, dpi=100)
@@ -208,12 +212,8 @@ print(f"Confusion matrix saved to {CM_PATH}")
 joblib.dump(model_xgb, MODEL_PATH)
 joblib.dump(le, LE_PATH)
 
-tracker_data = {
-    "trained_on_rows": current_rows,
-    "train_mode":      TRAIN_MODE,
-}
 with open(TRACKER_FILE, "w") as f:
-    json.dump(tracker_data, f)
+    json.dump({"trained_on_rows": current_rows, "train_mode": TRAIN_MODE}, f)
 
 print(f"\nModel saved to {MODELS_DIR}/")
 print(f"Tracker updated: trained_on_rows = {current_rows:,}")
@@ -222,7 +222,6 @@ print(f"Tracker updated: trained_on_rows = {current_rows:,}")
 
 model_loaded = joblib.load(MODEL_PATH)
 le_loaded    = joblib.load(LE_PATH)
-
 print(f"\nModel type:    {type(model_loaded).__name__}")
 print(f"Classes:       {le_loaded.classes_}")
 print(f"N estimators:  {model_loaded.n_estimators}")
@@ -231,5 +230,4 @@ print(f"\nFiles in {MODELS_DIR}:")
 for fname in sorted(os.listdir(MODELS_DIR)):
     size = os.path.getsize(f"{MODELS_DIR}/{fname}")
     print(f"  {fname}  ({size / 1024:.1f} KB)")
-
 print("\nAll checks passed.")
