@@ -64,7 +64,6 @@ def read_tsv(path):
         sep="\t",
         engine="python",
         on_bad_lines="skip",
-        low_memory=False,
     )
 
 
