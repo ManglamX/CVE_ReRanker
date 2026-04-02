@@ -31,12 +31,14 @@ def read_csv(path):
     if not os.path.exists(path):
         return pd.DataFrame(columns=COLUMNS)
     try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            first_line = fh.readline()
+        sep = "\t" if "\t" in first_line else ","
         return pd.read_csv(
             path,
-            sep="\t",
+            sep=sep,
             engine="python",
             on_bad_lines="skip",
-            low_memory=False,
         )
     except Exception as e:
         print(f"Warning: could not read {path} ({e}). Starting fresh.")

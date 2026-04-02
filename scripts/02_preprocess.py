@@ -59,9 +59,13 @@ SC = {"CHANGED": 1, "UNCHANGED": 0}
 # ── I/O helpers ────────────────────────────────────────────────────────
 
 def read_tsv(path):
+    # Sniff separator — handles old comma-based files and new TSV files
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        first_line = fh.readline()
+    sep = "\t" if "\t" in first_line else ","
     return pd.read_csv(
         path,
-        sep="\t",
+        sep=sep,
         engine="python",
         on_bad_lines="skip",
     )
