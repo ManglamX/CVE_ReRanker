@@ -2,7 +2,6 @@ import requests
 import pandas as pd
 import time
 import os
-import csv
 import json
 from datetime import datetime, timedelta, timezone
 
@@ -27,34 +26,20 @@ def score_to_label(score):
 
 
 def read_csv(path):
-    """Read the TSV safely; return an empty DataFrame on first run."""
+    """Read existing CSV safely; return empty DataFrame on first run."""
     if not os.path.exists(path):
         return pd.DataFrame(columns=COLUMNS)
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            first_line = fh.readline()
-        sep = "\t" if "\t" in first_line else ","
-        return pd.read_csv(
-            path,
-            sep=sep,
-            engine="python",
-            on_bad_lines="skip",
-        )
+        return pd.read_csv(path, engine="python", on_bad_lines="skip")
     except Exception as e:
         print(f"Warning: could not read {path} ({e}). Starting fresh.")
         return pd.DataFrame(columns=COLUMNS)
 
 
 def save_csv(df, path):
-    """Write as TSV with full quoting so embedded tabs/newlines are safe."""
+    """Write plain CSV — matches what the Colab notebooks produce."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    df.to_csv(
-        path,
-        index=False,
-        sep="\t",
-        quoting=csv.QUOTE_ALL,
-        escapechar="\\",
-    )
+    df.to_csv(path, index=False)
 
 
 # ── fetch / parse ──────────────────────────────────────────────────────
@@ -113,7 +98,7 @@ def parse_items(items, existing_ids):
             score = cvss_data["baseScore"]
             rows.append({
                 "cve_id":              cve["id"],
-                # Collapse embedded newlines so each CVE stays on one TSV row
+                # Collapse embedded newlines so CSV rows stay intact
                 "description":         " ".join(desc.split()),
                 "cvss_score":          score,
                 "cvss_label":          score_to_label(score),
