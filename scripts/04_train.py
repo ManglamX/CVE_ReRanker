@@ -8,7 +8,12 @@ from xgboost import XGBClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import classification_report, confusion_matrix
-import matplotlib
+try:
+    import matplotlib
+except ImportError:
+    import subprocess, sys
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "matplotlib", "-q"])
+    import matplotlib
 matplotlib.use("Agg")          # non-interactive backend for CI
 import matplotlib.pyplot as plt
 
@@ -82,8 +87,8 @@ nlp_cols  = ["entity_count", "has_remote", "has_unauth", "has_exec",
 meta_cols = ["attack_vector_enc", "attack_complexity_enc",
              "privileges_required_enc", "user_interaction_enc", "scope_enc"]
 
-nlp_feats  = df[nlp_cols].values.astype(float)
-meta_feats = df[meta_cols].values.astype(float)
+nlp_feats  = df[nlp_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values.astype(float)
+meta_feats = df[meta_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values.astype(float)
 X          = np.concatenate([bert_emb, nlp_feats, meta_feats], axis=1)
 y          = df["cvss_label"].values
 

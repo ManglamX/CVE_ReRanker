@@ -67,6 +67,16 @@ def encode_metadata(df):
     df["privileges_required_enc"] = df["privileges_required"].map(PRIVS_MAP).fillna(0)
     df["user_interaction_enc"]    = df["user_interaction"].map(UI_MAP).fillna(0)
     df["scope_enc"]               = df["scope"].map(SCOPE_MAP).fillna(0)
+    # Ensure all encoded and NLP feature columns are strictly numeric
+    num_cols = [
+        "attack_vector_enc", "attack_complexity_enc", "privileges_required_enc",
+        "user_interaction_enc", "scope_enc",
+        "entity_count", "has_remote", "has_unauth", "has_exec",
+        "has_priv_esc", "has_dos", "has_overflow", "desc_word_count",
+    ]
+    for col in num_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
     return df
 
 
