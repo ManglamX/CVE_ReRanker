@@ -34,6 +34,8 @@ OVERFLOW_WORDS = ["buffer overflow", "heap overflow", "stack overflow", "out-of-
 
 
 def extract_features(text):
+    if not text or not isinstance(text, str):
+        text = ""
     text_lower = text.lower()
     doc        = nlp(text_lower)
     entities   = [e.text for e in doc.ents if e.label_ in ["PRODUCT", "ORG", "GPE"]]
@@ -97,6 +99,13 @@ else:
     print(f"No processed file found. Will process all {len(df_raw)} rows from scratch.")
 
 df_to_process = df_raw[~df_raw["cve_id"].isin(already_done)].copy().reset_index(drop=True)
+
+# Drop rows with missing descriptions before any NLP work
+before = len(df_to_process)
+df_to_process = df_to_process.dropna(subset=["description"]).reset_index(drop=True)
+dropped = before - len(df_to_process)
+if dropped:
+    print(f"Dropped {dropped} rows with null descriptions.")
 
 print(f"\nTotal raw rows:      {len(df_raw)}")
 print(f"Already processed:   {len(already_done)}")
