@@ -22,12 +22,10 @@ EMB_FILE     = "data/bert_embeddings.npy"
 MODELS_DIR   = "models"
 TRACKER_FILE = f"{MODELS_DIR}/training_tracker.json"
 MODEL_PATH   = f"{MODELS_DIR}/model_xgb.pkl"
-MODEL_NATIVE = f"{MODELS_DIR}/model_xgb.json"  # XGBoost native format for warm-start
 LE_PATH      = f"{MODELS_DIR}/label_encoder.pkl"
 CM_PATH      = f"{MODELS_DIR}/confusion_matrix.png"
 
 FORCE_RETRAIN    = False
-UPDATE_THRESHOLD = 0.10
 VALID_LABELS     = {"Critical", "High", "Medium", "Low"}
 
 os.makedirs(MODELS_DIR, exist_ok=True)
@@ -62,19 +60,18 @@ print(f"Clean dataset:    {len(df)} rows")
 
 # ── decide train mode ──────────────────────────────────────────────────
 
-model_exists = os.path.exists(MODEL_PATH) and os.path.exists(MODEL_NATIVE)
-current_rows = len(df)   # use CLEAN row count
+model_exists = os.path.exists(MODEL_PATH)
+current_rows = len(df)
 
 if model_exists and os.path.exists(TRACKER_FILE):
     with open(TRACKER_FILE) as f:
         tracker = json.load(f)
     last_trained_rows = tracker.get("trained_on_rows", 0)
     new_rows          = current_rows - last_trained_rows
-    pct_new           = new_rows / last_trained_rows if last_trained_rows > 0 else 1.0
 
     print(f"\nModel found. Last trained on: {last_trained_rows:,} rows")
     print(f"Current dataset:              {current_rows:,} rows")
-    print(f"New rows since last train:    {new_rows:,} ({pct_new * 100:.1f}%)")
+    print(f"New rows since last train:    {new_rows:,}")
 
     if FORCE_RETRAIN:
         TRAIN_MODE = "full"
@@ -82,12 +79,9 @@ if model_exists and os.path.exists(TRACKER_FILE):
     elif new_rows <= 0:
         TRAIN_MODE = "skip"
         print("\nMode: SKIP — dataset unchanged, loading existing model")
-    elif pct_new >= UPDATE_THRESHOLD:
-        TRAIN_MODE = "full"
-        print(f"\nMode: FULL RETRAIN ({pct_new * 100:.1f}% new >= {UPDATE_THRESHOLD * 100:.0f}% threshold)")
     else:
-        TRAIN_MODE = "update"
-        print(f"\nMode: UPDATE — continuing training on {new_rows:,} new rows only")
+        TRAIN_MODE = "full"
+        print("\nMode: FULL RETRAIN (new rows available)")
 else:
     TRAIN_MODE        = "full"
     last_trained_rows = 0
@@ -122,18 +116,6 @@ def safe_split(X, y, test_size=0.2):
         print("  Warning: skipping stratify — a class has < 2 members.")
     return train_test_split(X, y, test_size=test_size, random_state=42, stratify=stratify)
 
-if TRAIN_MODE == "update":
-    X_new = X[last_trained_rows:]
-    y_new = y_enc[last_trained_rows:]
-    if len(X_new) < 5:
-        # Too few new rows to split — fall back to full retrain
-        print(f"Only {len(X_new)} new rows — switching to FULL RETRAIN.")
-        TRAIN_MODE = "full"
-    else:
-        X_train_up, X_test_up, y_train_up, y_test_up = safe_split(X_new, y_new)
-        print(f"Update train rows:   {len(X_train_up):,}")
-        print(f"Update test rows:    {len(X_test_up):,}")
-
 # Always build full split for evaluation
 X_train, X_test, y_train, y_test = safe_split(X, y_enc)
 print(f"\nFull train size:     {X_train.shape}")
@@ -146,21 +128,6 @@ if TRAIN_MODE == "skip":
     model_xgb = joblib.load(MODEL_PATH)
     le        = joblib.load(LE_PATH)
     print("Model loaded. Skipping training.")
-
-elif TRAIN_MODE == "update":
-    print(f"\nLoading existing model to continue training...")
-    model_xgb = joblib.load(MODEL_PATH)
-    le        = joblib.load(LE_PATH)
-    print(f"Continuing training on {len(X_train_up):,} new rows...")
-    start = time.time()
-    model_xgb.fit(
-        X_train_up, y_train_up,
-        xgb_model = MODEL_NATIVE,   # XGBoost native .json format, not pickle
-        eval_set  = [(X_test_up, y_test_up)],
-        verbose   = 50,
-    )
-    elapsed = time.time() - start
-    print(f"Update training done in {elapsed:.1f}s")
 
 else:  # full
     print("\nTraining XGBoost from scratch...")
@@ -212,7 +179,6 @@ print(f"Confusion matrix saved to {CM_PATH}")
 
 joblib.dump(model_xgb, MODEL_PATH)
 joblib.dump(le, LE_PATH)
-model_xgb.save_model(MODEL_NATIVE)  # native format for future warm-starts
 
 with open(TRACKER_FILE, "w") as f:
     json.dump({"trained_on_rows": current_rows, "train_mode": TRAIN_MODE}, f)
