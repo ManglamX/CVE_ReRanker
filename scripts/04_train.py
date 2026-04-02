@@ -22,6 +22,7 @@ EMB_FILE     = "data/bert_embeddings.npy"
 MODELS_DIR   = "models"
 TRACKER_FILE = f"{MODELS_DIR}/training_tracker.json"
 MODEL_PATH   = f"{MODELS_DIR}/model_xgb.pkl"
+MODEL_NATIVE = f"{MODELS_DIR}/model_xgb.json"  # XGBoost native format for warm-start
 LE_PATH      = f"{MODELS_DIR}/label_encoder.pkl"
 CM_PATH      = f"{MODELS_DIR}/confusion_matrix.png"
 
@@ -61,7 +62,7 @@ print(f"Clean dataset:    {len(df)} rows")
 
 # ── decide train mode ──────────────────────────────────────────────────
 
-model_exists = os.path.exists(MODEL_PATH)
+model_exists = os.path.exists(MODEL_PATH) and os.path.exists(MODEL_NATIVE)
 current_rows = len(df)   # use CLEAN row count
 
 if model_exists and os.path.exists(TRACKER_FILE):
@@ -154,7 +155,7 @@ elif TRAIN_MODE == "update":
     start = time.time()
     model_xgb.fit(
         X_train_up, y_train_up,
-        xgb_model = MODEL_PATH,
+        xgb_model = MODEL_NATIVE,   # XGBoost native .json format, not pickle
         eval_set  = [(X_test_up, y_test_up)],
         verbose   = 50,
     )
@@ -211,6 +212,7 @@ print(f"Confusion matrix saved to {CM_PATH}")
 
 joblib.dump(model_xgb, MODEL_PATH)
 joblib.dump(le, LE_PATH)
+model_xgb.save_model(MODEL_NATIVE)  # native format for future warm-starts
 
 with open(TRACKER_FILE, "w") as f:
     json.dump({"trained_on_rows": current_rows, "train_mode": TRAIN_MODE}, f)
