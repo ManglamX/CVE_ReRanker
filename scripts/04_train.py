@@ -80,6 +80,20 @@ else:
     new_rows          = current_rows
     print("\nMode: FULL RETRAIN (no existing model found)")
 
+# ── sanitise labels ────────────────────────────────────────────────────
+# Keep only rows whose cvss_label is one of the four valid classes.
+# Corrupted rows (column-shift artifacts) have attack_vector values here.
+VALID_LABELS = {"Critical", "High", "Medium", "Low"}
+before = len(df)
+mask   = df["cvss_label"].isin(VALID_LABELS)
+df     = df[mask].reset_index(drop=True)
+bert_emb = bert_emb[mask.values]
+dropped  = before - len(df)
+if dropped:
+    print(f"Dropped {dropped} rows with invalid cvss_label values.")
+
+print(f"\nClean dataset: {len(df)} rows")
+
 # ── build feature matrix ───────────────────────────────────────────────
 
 nlp_cols  = ["entity_count", "has_remote", "has_unauth", "has_exec",
@@ -102,8 +116,11 @@ print(f"Classes:             {le.classes_}")
 if TRAIN_MODE == "update":
     X_new  = X[last_trained_rows:]
     y_new  = y_enc[last_trained_rows:]
+    # Only stratify if every class has at least 2 members
+    counts   = np.bincount(y_new)
+    stratify = y_new if counts.min() >= 2 else None
     X_train_up, X_test_up, y_train_up, y_test_up = train_test_split(
-        X_new, y_new, test_size=0.2, random_state=42, stratify=y_new
+        X_new, y_new, test_size=0.2, random_state=42, stratify=stratify
     )
     print(f"Update train rows:   {len(X_train_up):,}")
     print(f"Update test rows:    {len(X_test_up):,}")

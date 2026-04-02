@@ -152,6 +152,12 @@ else:
     else:
         df_final = df_to_process
 
+    VALID_LABELS = {"Critical", "High", "Medium", "Low"}
+    bad = ~df_final["cvss_label"].isin(VALID_LABELS)
+    if bad.sum():
+        print(f"Warning: dropping {bad.sum()} rows with invalid cvss_label before save.")
+        df_final = df_final[~bad].reset_index(drop=True)
+
     save_csv(df_final, OUT_PATH)
     print(f"\nSaved {len(df_final)} rows to {OUT_PATH}")
     print(f"Total columns: {len(df_final.columns)}")
